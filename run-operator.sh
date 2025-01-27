@@ -4,8 +4,7 @@
 set -eu -o pipefail
 
 # Declare and initialize variables
-declare OPERATOR_DIR
-OPERATOR_DIR=$(pwd)/operator                                                  # Default operator directory
+declare OPERATOR_DIR=~/operator
 declare KIND_CONFIG=""                                                        # Optional kind configuration file
 declare KIND_CONTEXT=test                                                     # Default kind cluster context name
 declare IMAGE_OPERATOR=quay.io/prometheus-operator/prometheus-operator        # Operator image
@@ -16,7 +15,7 @@ declare SKIP_OPERATOR_RUN_CHECK=false                                         # 
 declare DEBUG_LEVEL="default"                                                 # Default debug level
 declare GOARCH                                                                # Architecture of the Go runtime
 GOARCH=$(go env GOARCH)
-ARCH=$GOARCH
+declare ARCH=$GOARCH
 declare TAG  # Tag for images
 declare GOOS # Operating system of the Go runtime
 GOOS=$(go env GOOS)
@@ -73,7 +72,8 @@ parse_args() {
             if [[ -z $2 || $2 == -* ]]; then
                 error $LINENO "missing or invalid value for --operator-dir flag"
             fi
-            OPERATOR_DIR=$2 # Set operator directory
+            OPERATOR_DIR=$2                                                                  # Set operator directory
+            cd "$OPERATOR_DIR" || error $LINENO "could not find operating dir $OPERATOR_DIR" # if the directory isn't present, fail here
             shift 2
             ;;
         --debug-level | -d)
@@ -99,9 +99,6 @@ parse_args() {
             ;;
         --help | -h)
             help # Display help message
-            ;;
-        --cleanup | -c)
-            tear_down # Tear down the cluster
             ;;
         *) ;;
         esac
@@ -248,11 +245,14 @@ EOF
 # Main function: Executes the script steps
 main() {
     check_dependencies
-    parse_args "$@"
 
+    if [[ $# -gt 0 && $1 == "teardown" ]]; then
+        tear_down
+    fi
+
+    parse_args "$@"
     init_cluster_context
 
-    cd "$OPERATOR_DIR" || error $LINENO "could not find operating dir $OPERATOR_DIR"
     TAG=$(git rev-parse --short HEAD || echo "latest") # Get Git tag or use "latest"
 
     build_and_load_operator
