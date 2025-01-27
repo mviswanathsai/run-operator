@@ -4,7 +4,7 @@
 set -eu -o pipefail
 
 # Declare and initialize variables
-declare OPERATOR_DIR=~/operator
+declare OPERATOR_DIR=~/operator/
 declare KIND_CONFIG=""                                                        # Optional kind configuration file
 declare KIND_CONTEXT=test                                                     # Default kind cluster context name
 declare IMAGE_OPERATOR=quay.io/prometheus-operator/prometheus-operator        # Operator image
