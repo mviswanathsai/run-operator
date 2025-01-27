@@ -1,47 +1,47 @@
 #!/bin/bash
 
+# Exit immediately if a command exits with a non-zero status and set pipefail
 set -eu -o pipefail
 
+# Declare and initialize variables
 declare OPERATOR_DIR
-OPERATOR_DIR=$(pwd)/operator
-declare MULTINODE_CLUSTER=false
-declare KIND_CONTEXT=test
-declare IMAGE_OPERATOR=quay.io/prometheus-operator/prometheus-operator
-declare IMAGE_RELOADER=quay.io/prometheus-operator/prometheus-config-reloader
-declare IMAGE_WEBHOOK=quay.io/prometheus-operator/admission-webhook
-declare VERSION_LABEL="app.kubernetes.io\/version: "
-declare SKIP_OPERATOR_RUN_CHECK=false
-declare DEBUG_LEVEL="info"
-declare GOARCH
+OPERATOR_DIR=$(pwd)/operator                                                  # Default operator directory
+declare KIND_CONFIG=""                                                        # Optional kind configuration file
+declare KIND_CONTEXT=test                                                     # Default kind cluster context name
+declare IMAGE_OPERATOR=quay.io/prometheus-operator/prometheus-operator        # Operator image
+declare IMAGE_RELOADER=quay.io/prometheus-operator/prometheus-config-reloader # Reloader image
+declare IMAGE_WEBHOOK=quay.io/prometheus-operator/admission-webhook           # Webhook image
+declare VERSION_LABEL="app.kubernetes.io\/version: "                          # Label used for versioning
+declare SKIP_OPERATOR_RUN_CHECK=false                                         # Skip operator existence check if true
+declare DEBUG_LEVEL="default"                                                 # Default debug level
+declare GOARCH                                                                # Architecture of the Go runtime
 GOARCH=$(go env GOARCH)
 ARCH=$GOARCH
-declare TAG
-declare GOOS
+declare TAG  # Tag for images
+declare GOOS # Operating system of the Go runtime
 GOOS=$(go env GOOS)
 
+# Function to log the current date and time
 log_time() { date +"%Y-%m-%d %H:%M:%S"; }
 
+# Logging helper: Log info messages if DEBUG_LEVEL is set to "info"
 info() {
     if [ "$DEBUG_LEVEL" == "info" ]; then
         printf "\n%s 🔔 $* \n" "$(log_time)"
     fi
 }
 
+# Logging helper: Log success messages
 ok() {
     printf "%s ✅ $* \n" "$(log_time)"
 }
 
-warn() {
-    if [ "$DEBUG_LEVEL" == "warn" ]; then
-        printf "\n%s ⚠️  $* \n" "$(log_time)"
-    fi
-}
-
+# Error handling: Log error messages and exit
 error() {
     printf "\n%s 🛑 ERROR: \n" "$(log_time)"
-    local parent_lineno="$1"
-    local message="$2"
-    local code="${3:-1}"
+    local parent_lineno="$1" # Line number of the error
+    local message="$2"       # Error message
+    local code="${3:-1}"     # Exit code
     if [[ -n "$message" ]]; then
         echo "kind-context: \"$KIND_CONTEXT\"; error on or near line ${parent_lineno}: ${message}"
     else
@@ -50,6 +50,7 @@ error() {
     exit "${code}"
 }
 
+# Header helper: Display section headers with formatting
 header() {
     local title="🔆🔆🔆  $*  🔆🔆🔆 "
 
@@ -64,44 +65,43 @@ header() {
     echo "━━━━━"
 }
 
+# Argument parser: Parses command-line arguments
 parse_args() {
-    ### while there are args parse them
     while [[ -n "${1+xxx}" ]]; do
         case $1 in
-        --multinode-cluster | -m)
-            MULTINODE_CLUSTER=true
-            shift
-            ;;
-        --skip-operator-check | -s)
-            MULTINODE_CLUSTER=true
-            shift
-            ;;
         --operator-dir | -o)
             if [[ -z $2 || $2 == -* ]]; then
                 error $LINENO "missing or invalid value for --operator-dir flag"
             fi
-            OPERATOR_DIR=$2
+            OPERATOR_DIR=$2 # Set operator directory
             shift 2
             ;;
         --debug-level | -d)
-            if [[ "$2" != "info" && "$2" != "debug" ]]; then
-                error $LINENO "invalid value for --debug-level flag: '$2'. Allowed values are 'info' or 'debug'."
+            if [[ "$2" != "info" && "$2" != "default" ]]; then
+                error $LINENO "invalid value for --debug-level flag: '$2'. Allowed values are 'default' or 'info'."
             fi
-            DEBUG_LEVEL=$2
+            DEBUG_LEVEL=$2 # Set debug level
             shift 2
             ;;
         --kind-context | -k)
             if [[ -z $2 || $2 == -* ]]; then
                 error $LINENO "missing value for --kind-context flag"
             fi
-            KIND_CONTEXT=$2
+            KIND_CONTEXT=$2 # Set kind cluster context
+            shift 2
+            ;;
+        --kind-config | -K)
+            if [[ -z $2 || $2 == -* ]]; then
+                error $LINENO "missing value for --kind-context flag"
+            fi
+            KIND_CONTEXT=$2 # Set kind configuration
             shift 2
             ;;
         --help | -h)
-            help
+            help # Display help message
             ;;
         --cleanup | -c)
-            tear_down
+            tear_down # Tear down the cluster
             ;;
         *) ;;
         esac
@@ -110,6 +110,7 @@ parse_args() {
     return 0
 }
 
+# Initialize cluster context: Set up a kind cluster
 init_cluster_context() {
     header "Set Cluster"
 
@@ -120,15 +121,12 @@ init_cluster_context() {
     fi
 
     info "creating cluster \"$KIND_CONTEXT\""
-    if $MULTINODE_CLUSTER; then
-        kind create cluster -n "$KIND_CONTEXT" --config ./kind-multinode-config.yaml || error $LINENO "could not create cluster"
-    else
-        kind create cluster -n "$KIND_CONTEXT" || error $LINENO "could not create cluster"
-    fi
+    kind create cluster -n "$KIND_CONTEXT" --config "$KIND_CONFIG" || error $LINENO "could not create cluster"
 
     ok "kind cluster \"$KIND_CONTEXT\" initiated successfully"
 }
 
+# Build and load operator images into the kind cluster
 build_and_load_operator() {
     header "Build images"
     info "building operator image"
@@ -159,6 +157,7 @@ build_and_load_operator() {
     return 0
 }
 
+# Ensure no other Prometheus Operator is running in the cluster
 ensure_operator_not_running() {
     header "Ensure no other prometheus-operator is running"
 
@@ -183,6 +182,7 @@ ensure_operator_not_running() {
     return 0
 }
 
+# Deploy the Prometheus Operator bundle
 deploy_operator() {
     header "Deploying the operator bundle"
 
@@ -197,6 +197,7 @@ deploy_operator() {
     ok "operator deployed successfully to cluster \"$KIND_CONTEXT\""
 }
 
+# Tear down the kind cluster
 tear_down() {
     info "tearing down cluster \"$KIND_CONTEXT\""
     kind delete cluster -n "$KIND_CONTEXT" || error $LINENO "could not tear down the kind cluster \"$KIND_CONTEXT\""
@@ -204,12 +205,14 @@ tear_down() {
     exit
 }
 
+# Check required dependencies
 check_dependencies() {
     for cmd in kubectl docker kind; do
         command -v "$cmd" >/dev/null 2>&1 || error $LINENO "$cmd is required but not installed"
     done
 }
 
+# Display help message
 help() {
     cat <<EOF
 Usage: $0 [OPTIONS]
@@ -237,19 +240,20 @@ EXAMPLES:
 
 NOTES:
   - All required dependencies (e.g., kubectl, docker, kind) must be installed and accessible in PATH.
-  - Ensure the working directory specified with --operator-dir contains the operator github repo.
+  - Ensure the working directory specified with --operator-dir contains the operator GitHub repository.
 EOF
     exit
 }
 
+# Main function: Executes the script steps
 main() {
     check_dependencies
     parse_args "$@"
 
     init_cluster_context
 
-    cd "$OPERATOR_DIR" || error "could not find operating dir $OPERATOR_DIR"
-    TAG=$(git rev-parse --short HEAD || echo "latest")
+    cd "$OPERATOR_DIR" || error $LINENO "could not find operating dir $OPERATOR_DIR"
+    TAG=$(git rev-parse --short HEAD || echo "latest") # Get Git tag or use "latest"
 
     build_and_load_operator
     ensure_operator_not_running
