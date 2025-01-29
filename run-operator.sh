@@ -72,8 +72,7 @@ parse_args() {
             if [[ -z $2 || $2 == -* ]]; then
                 error $LINENO "missing or invalid value for --operator-dir flag"
             fi
-            OPERATOR_DIR=$2                                                                  # Set operator directory
-            cd "$OPERATOR_DIR" || error $LINENO "could not find operating dir $OPERATOR_DIR" # if the directory isn't present, fail here
+            OPERATOR_DIR=$2 # Set operator directory
             shift 2
             ;;
         --debug-level | -d)
@@ -251,10 +250,11 @@ main() {
     fi
 
     parse_args "$@"
+    cd "$OPERATOR_DIR" || error $LINENO "could not find operating dir $OPERATOR_DIR" # if the directory isn't present, fail here
+
     init_cluster_context
 
     TAG=$(git rev-parse --short HEAD || echo "latest") # Get Git tag or use "latest"
-
     build_and_load_operator
     ensure_operator_not_running
     deploy_operator
